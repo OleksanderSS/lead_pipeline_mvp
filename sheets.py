@@ -4,6 +4,7 @@ Google Sheets writer — appends one row per lead.
 """
 
 import os
+import json
 import logging
 import asyncio
 from typing import Any
@@ -20,10 +21,23 @@ HEADERS = [
 ]
 
 def get_creds():
-    return Credentials.from_service_account_file(
-        "service_account.json",
-        scopes=["https://www.googleapis.com/auth/spreadsheets"],
-    )
+    # 1. Перевіряємо наявність JSON-рядка у змінних оточення
+    json_str = os.getenv("GOOGLE_CREDENTIALS_JSON")
+    if json_str:
+        # Парсимо рядок у словник
+        info = json.loads(json_str)
+        return Credentials.from_service_account_info(info, scopes=["https://www.googleapis.com/auth/spreadsheets"])
+    
+    # 2. Fallback: намагаємось прочитати локальний файл
+    path = "service_account.json"
+    if os.path.exists(path):
+        return Credentials.from_service_account_file(path, scopes=["https://www.googleapis.com/auth/spreadsheets"])
+    
+    raise FileNotFoundError("Google Credentials не знайдені: ні в ENV, ні у файлі service_account.json")
+
+# Ініціалізація сервісу
+creds = get_creds()
+service = build('sheets', 'v4', credentials=creds)
 
 async def append_to_sheet(record: dict[str, Any]) -> None:
     if not SHEET_ID:
