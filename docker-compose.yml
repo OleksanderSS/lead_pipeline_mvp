@@ -1,0 +1,10 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      # Прокидаємо файл сервісного акаунта всередину, якщо він потрібен
+      - ./service_account.json:/app/service_account.json

@@ -1,0 +1,20 @@
+# Секрети та налаштування
+.env
+service_account.json
+
+# Папки Python та віртуальні середовища
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Системні файли
+.DS_Store
+.pytest_cache/
+.vscode/
+.idea/
+
+# Додатково, якщо плануєш білдити проєкт
+dist/
+build/
+*.egg-info/
