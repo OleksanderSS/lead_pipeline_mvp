@@ -83,19 +83,31 @@ BUDGET_BUCKETS = [
     (50000,  None,  "$50k+"),
 ]
 
+_AMOUNT = re.compile(r"(\d[\d\s]*(?:[.,]\d+)*)\s*(k|к|тис)?", re.IGNORECASE)
+
+
 def _normalize_budget(raw: str | None) -> str | None:
+    """Map free text ("5 000 грн", "$5,000", "5k", the form's own "$2k–$10k") to a bucket.
+
+    The first amount in the text decides; a "k"/"к"/"тис" right after it means thousands.
+    Text with no amount at all is kept as written.
+    """
     if not raw:
         return None
-    # Extract first number found
-    nums = re.findall(r"[\d\s]+", raw.replace(",", "").replace(".", ""))
-    if not nums:
-        return raw.strip()  # Return as-is if unparseable
+    match = _AMOUNT.search(raw)
+    if not match:
+        return raw.strip()
 
-    amount = int("".join(nums[0].split()))
+    digits = re.sub(r"\s", "", match.group(1))
+    if re.fullmatch(r"\d{1,3}([.,]\d{3})+", digits):   # 5,000 / 1.500.000: thousands separators
+        amount = float(re.sub(r"[.,]", "", digits))
+    else:                                                # 1.5 / 1,5: a decimal point
+        amount = float(digits.replace(",", "."))
+    if match.group(2):
+        amount *= 1000
+
     for low, high, label in BUDGET_BUCKETS:
-        if high is None and amount >= low:
-            return label
-        if high and low <= amount < high:
+        if amount >= low and (high is None or amount < high):
             return label
     return raw.strip()
 

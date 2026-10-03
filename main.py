@@ -7,15 +7,14 @@ load_dotenv()
 
 import os
 import re
-import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
-import httpx
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, field_validator
 
 from normalizer import normalize_lead
 from classifier import classify_lead
@@ -86,22 +85,18 @@ async def root():
 
 @app.post("/submit")
 async def submit_lead(payload: LeadPayload):
-    logger.info(f"Incoming lead from: {payload.email}")
-
     # 1. Normalize
     lead = normalize_lead(payload.model_dump())
-    logger.info(f"Normalized: {lead}")
 
-    # 2. AI Summary
+    # 2. AI Summary (a plain-text fallback if the model is unavailable)
     try:
         summary = await generate_summary(lead)
     except Exception as e:
-        logger.warning(f"AI summary failed: {e}. Using fallback.")
-        summary = f"{lead['name']} from {lead.get('company', 'unknown company')} — {lead.get('message', 'no message')[:100]}"
+        logger.warning(f"AI summary failed ({type(e).__name__}); using fallback")
+        summary = _fallback_summary(lead)
 
     # 3. Classify
     classification = classify_lead(lead)
-    logger.info(f"Classification: {classification}")
 
     # 4. Build result record
     record = {
@@ -110,26 +105,42 @@ async def submit_lead(payload: LeadPayload):
         "score": classification["score"],
         "label": classification["label"],
         "reasons": ", ".join(classification["reasons"]),
-        "created_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
+        "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
     }
 
-    # 5. Write to Google Sheets
+    # 5. Write to Google Sheets -- the lead's only durable record
     try:
         await append_to_sheet(record)
-        logger.info("Written to Google Sheets")
+        stored = True
     except Exception as e:
-        logger.warning(f"Sheets write failed: {e}")
+        logger.error(f"Sheets write failed ({type(e).__name__}): {e}")
+        stored = False
+    record["stored"] = stored
 
-    # 6. Telegram notification
+    # 6. Telegram notification -- sent even when the sheet failed, flagged as such
     try:
         await send_telegram_notification(record)
-        logger.info("Telegram notification sent")
+        notified = True
     except Exception as e:
-        logger.warning(f"Telegram notification failed: {e}")
+        logger.error(f"Telegram notification failed ({type(e).__name__}): {e}")
+        notified = False
 
-    return {
-        "status": "received",
+    # No personal data in the log: label, score and outcome only.
+    logger.info(f"Lead {record['label']} ({record['score']}): stored={stored} notified={notified}")
+
+    body = {
+        "status": "received" if stored else "not_stored",
+        "stored": stored,
+        "notified": notified,
         "label": record["label"],
         "score": record["score"],
         "summary": summary,
     }
+    # A lead that was not stored must not be reported as received: the form can retry.
+    return JSONResponse(status_code=200 if stored else 502, content=body)
+
+
+def _fallback_summary(lead: dict) -> str:
+    company = lead.get("company") or "unknown company"
+    message = (lead.get("message") or "no message")[:100]
+    return f"{lead['name']} from {company} — {message}"

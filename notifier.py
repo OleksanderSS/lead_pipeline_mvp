@@ -11,6 +11,7 @@ Setup:
 """
 
 import os
+import html
 import logging
 
 import httpx
@@ -47,6 +48,8 @@ async def send_telegram_notification(record: dict) -> None:
 
 
 def _format_message(r: dict) -> str:
+    # User-typed fields go into an HTML message; unescaped, a '<' breaks it (Telegram 400).
+    r = {k: html.escape(v) if isinstance(v, str) else v for k, v in r.items()}
     label = r.get("label", "—")
     emoji = LABEL_EMOJI.get(label, "📋")
 
@@ -61,8 +64,10 @@ def _format_message(r: dict) -> str:
     summary = r.get("summary", "—")
     created_at = r.get("created_at", "—")
 
+    warning = "" if r.get("stored", True) else "⚠️ <b>NOT SAVED to the sheet — copy this lead by hand</b>\n"
+
     return (
-        f"{emoji} <b>New Lead — {label}</b> (score: {score}/100)\n"
+        f"{warning}{emoji} <b>New Lead — {label}</b> (score: {score}/100)\n"
         f"━━━━━━━━━━━━━━━━━━━\n"
         f"👤 <b>Name:</b> {name}\n"
         f"📧 <b>Email:</b> {email}\n"

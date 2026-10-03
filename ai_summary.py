@@ -22,9 +22,8 @@ async def generate_summary(lead: dict) -> str:
     prompt = _build_prompt(lead)
     
     try:
-        # Використовуємо модель gemini-2.0-flash (вона актуальна і швидка)
-        response = client.models.generate_content(
-            model='gemini-2.0-flash',  # Використовуємо модель, яку бачить діагностика
+        response = await client.aio.models.generate_content(
+            model='gemini-2.0-flash',
             contents=prompt,
         )
         return response.text.strip()
